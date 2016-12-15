@@ -15,13 +15,23 @@
  */
 package rx.internal.operators;
 
-import java.io.IOException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.assertEquals;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.*;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.junit.Test;
 import org.mockito.InOrder;
-import static org.mockito.Mockito.*;
+
 import rx.Observable;
 import rx.Observable.OnSubscribe;
 import rx.Observer;
@@ -29,7 +39,9 @@ import rx.Subscriber;
 import rx.Subscription;
 import rx.exceptions.TestException;
 import rx.functions.Action1;
+import rx.functions.Func1;
 import rx.functions.Func2;
+import rx.observers.TestSubscriber;
 import rx.subjects.PublishSubject;
 
 public class OperatorRetryWithPredicateTest {
@@ -54,13 +66,13 @@ public class OperatorRetryWithPredicateTest {
     @Test
     public void testWithNothingToRetry() {
         Observable<Integer> source = Observable.range(0, 3);
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryTwice).subscribe(o);
-        
+
         inOrder.verify(o).onNext(0);
         inOrder.verify(o).onNext(1);
         inOrder.verify(o).onNext(2);
@@ -85,11 +97,11 @@ public class OperatorRetryWithPredicateTest {
                 t1.onCompleted();
             }
         });
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryTwice).subscribe(o);
 
         inOrder.verify(o).onNext(0);
@@ -100,7 +112,7 @@ public class OperatorRetryWithPredicateTest {
         inOrder.verify(o).onNext(3);
         inOrder.verify(o).onCompleted();
         verify(o, never()).onError(any(Throwable.class));
-        
+
     }
     @Test
     public void testRetryTwiceAndGiveUp() {
@@ -112,11 +124,11 @@ public class OperatorRetryWithPredicateTest {
                 t1.onError(new TestException());
             }
         });
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryTwice).subscribe(o);
 
         inOrder.verify(o).onNext(0);
@@ -127,7 +139,7 @@ public class OperatorRetryWithPredicateTest {
         inOrder.verify(o).onNext(1);
         inOrder.verify(o).onError(any(TestException.class));
         verify(o, never()).onCompleted();
-        
+
     }
     @Test
     public void testRetryOnSpecificException() {
@@ -147,11 +159,11 @@ public class OperatorRetryWithPredicateTest {
                 t1.onCompleted();
             }
         });
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryOnTestException).subscribe(o);
 
         inOrder.verify(o).onNext(0);
@@ -183,11 +195,11 @@ public class OperatorRetryWithPredicateTest {
                 t1.onError(te);
             }
         });
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryOnTestException).subscribe(o);
 
         inOrder.verify(o).onNext(0);
@@ -200,7 +212,7 @@ public class OperatorRetryWithPredicateTest {
         verify(o, never()).onError(ioe);
         verify(o, never()).onCompleted();
     }
-    
+
     @Test
     public void testUnsubscribeFromRetry() {
         PublishSubject<Integer> subject = PublishSubject.create();
@@ -216,7 +228,7 @@ public class OperatorRetryWithPredicateTest {
         subject.onNext(2);
         assertEquals(1, count.get());
     }
-    
+
     @Test(timeout = 10000)
     public void testUnsubscribeAfterError() {
 
@@ -269,5 +281,118 @@ public class OperatorRetryWithPredicateTest {
         inOrder.verify(observer, never()).onCompleted();
 
         assertEquals("Start 6 threads, retry 5 then fail on 6", 6, so.efforts.get());
+    }
+
+    @Test
+    public void testIssue2826() {
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+        final RuntimeException e = new RuntimeException("You shall not pass");
+        final AtomicInteger c = new AtomicInteger();
+        Observable.just(1).map(new Func1<Integer, Integer>() {
+            @Override
+            public Integer call(Integer t1) {
+                c.incrementAndGet();
+                throw e;
+            }
+        }).retry(retry5).subscribe(ts);
+
+        ts.assertTerminalEvent();
+        assertEquals(6, c.get());
+        assertEquals(Collections.singletonList(e), ts.getOnErrorEvents());
+    }
+    @Test
+    public void testJustAndRetry() throws Exception {
+        final AtomicBoolean throwException = new AtomicBoolean(true);
+        int value = Observable.just(1).map(new Func1<Integer, Integer>() {
+            @Override
+            public Integer call(Integer t1) {
+                if (throwException.compareAndSet(true, false)) {
+                    throw new TestException();
+                }
+                return t1;
+            }
+        }).retry(1).toBlocking().single();
+
+        assertEquals(1, value);
+    }
+
+    @Test
+    public void testIssue3008RetryWithPredicate() {
+        final List<Long> list = new CopyOnWriteArrayList<Long>();
+        final AtomicBoolean isFirst = new AtomicBoolean(true);
+        Observable.<Long> just(1L, 2L, 3L).map(new Func1<Long, Long>() {
+            @Override
+            public Long call(Long x) {
+                System.out.println("map " + x);
+                if (x == 2 && isFirst.getAndSet(false)) {
+                    throw new RuntimeException("retryable error");
+                }
+                return x;
+            }})
+        .retry(new Func2<Integer, Throwable, Boolean>() {
+            @Override
+            public Boolean call(Integer t1, Throwable t2) {
+                return true;
+            }})
+        .forEach(new Action1<Long>() {
+
+            @Override
+            public void call(Long t) {
+                System.out.println(t);
+                list.add(t);
+            }});
+        assertEquals(Arrays.asList(1L,1L,2L,3L), list);
+    }
+
+    @Test
+    public void testIssue3008RetryInfinite() {
+        final List<Long> list = new CopyOnWriteArrayList<Long>();
+        final AtomicBoolean isFirst = new AtomicBoolean(true);
+        Observable.<Long> just(1L, 2L, 3L).map(new Func1<Long, Long>() {
+            @Override
+            public Long call(Long x) {
+                System.out.println("map " + x);
+                if (x == 2 && isFirst.getAndSet(false)) {
+                    throw new RuntimeException("retryable error");
+                }
+                return x;
+            }})
+        .retry()
+        .forEach(new Action1<Long>() {
+
+            @Override
+            public void call(Long t) {
+                System.out.println(t);
+                list.add(t);
+            }});
+        assertEquals(Arrays.asList(1L,1L,2L,3L), list);
+    }
+    @Test
+    public void testBackpressure() {
+        final List<Long> requests = new ArrayList<Long>();
+
+        Observable<Integer> source = Observable
+                .just(1)
+                .concatWith(Observable.<Integer>error(new TestException()))
+                .doOnRequest(new Action1<Long>() {
+                    @Override
+                    public void call(Long t) {
+                        requests.add(t);
+                    }
+                });
+
+        TestSubscriber<Integer> ts = TestSubscriber.create(3);
+        source
+        .retry(new Func2<Integer, Throwable, Boolean>() {
+            @Override
+            public Boolean call(Integer t1, Throwable t2) {
+                return t1 < 3;
+            }
+        }).subscribe(ts);
+
+        assertEquals(Arrays.asList(3L, 2L, 1L), requests);
+        ts.assertValues(1, 1, 1);
+        ts.assertNotCompleted();
+        ts.assertError(TestException.class);
     }
 }

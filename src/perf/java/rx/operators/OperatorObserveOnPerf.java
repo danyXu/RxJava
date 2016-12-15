@@ -45,7 +45,7 @@ public class OperatorObserveOnPerf {
         }
 
     }
-    
+
     @Benchmark
     public void observeOnComputation(Input input) throws InterruptedException {
         LatchedObserver<Integer> o = input.newLatchedObserver();
@@ -64,6 +64,27 @@ public class OperatorObserveOnPerf {
     public void observeOnImmediate(Input input) throws InterruptedException {
         LatchedObserver<Integer> o = input.newLatchedObserver();
         input.observable.observeOn(Schedulers.immediate()).subscribe(o);
+        o.latch.await();
+    }
+
+    @Benchmark
+    public void observeOnComputationSubscribedOnComputation(Input input) throws InterruptedException {
+        LatchedObserver<Integer> o = input.newLatchedObserver();
+        input.observable.subscribeOn(Schedulers.computation()).observeOn(Schedulers.computation()).subscribe(o);
+        o.latch.await();
+    }
+
+    @Benchmark
+    public void observeOnNewThreadSubscribedOnComputation(Input input) throws InterruptedException {
+        LatchedObserver<Integer> o = input.newLatchedObserver();
+        input.observable.subscribeOn(Schedulers.computation()).observeOn(Schedulers.newThread()).subscribe(o);
+        o.latch.await();
+    }
+
+    @Benchmark
+    public void observeOnImmediateSubscribedOnComputation(Input input) throws InterruptedException {
+        LatchedObserver<Integer> o = input.newLatchedObserver();
+        input.observable.subscribeOn(Schedulers.computation()).observeOn(Schedulers.immediate()).subscribe(o);
         o.latch.await();
     }
 

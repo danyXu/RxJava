@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,10 +15,11 @@
  */
 package rx.internal.operators;
 
-import rx.Observable;
+import rx.*;
 import rx.Observable.OnSubscribe;
-import rx.Subscriber;
+import rx.exceptions.Exceptions;
 import rx.functions.Func0;
+import rx.observers.Subscribers;
 
 /**
  * Do not create the Observable until an Observer subscribes; create a fresh Observable on each
@@ -29,6 +30,7 @@ import rx.functions.Func0;
  * Pass defer an Observable factory function (a function that generates Observables), and defer will
  * return an Observable that will call this function to generate its Observable sequence afresh
  * each time a new Observer subscribes.
+ * @param <T> the value type
  */
 public final class OnSubscribeDefer<T> implements OnSubscribe<T> {
     final Func0<? extends Observable<? extends T>> observableFactory;
@@ -38,15 +40,15 @@ public final class OnSubscribeDefer<T> implements OnSubscribe<T> {
     }
 
     @Override
-    public void call(Subscriber<? super T> s) {
+    public void call(final Subscriber<? super T> s) {
         Observable<? extends T> o;
         try {
             o = observableFactory.call();
         } catch (Throwable t) {
-            s.onError(t);
+            Exceptions.throwOrReport(t, s);
             return;
         }
-        o.unsafeSubscribe(s);
+        o.unsafeSubscribe(Subscribers.wrap(s));
     }
-    
+
 }

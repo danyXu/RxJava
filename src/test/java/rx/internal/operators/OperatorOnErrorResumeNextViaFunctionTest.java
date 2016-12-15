@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,12 +30,14 @@ import org.mockito.Mockito;
 
 import rx.Observable;
 import rx.Observable.Operator;
+import rx.exceptions.TestException;
 import rx.Observer;
 import rx.Subscriber;
 import rx.Subscription;
 import rx.functions.Func1;
 import rx.observers.TestSubscriber;
 import rx.schedulers.Schedulers;
+import rx.subjects.PublishSubject;
 
 public class OperatorOnErrorResumeNextViaFunctionTest {
 
@@ -229,7 +231,7 @@ public class OperatorOnErrorResumeNextViaFunctionTest {
         System.out.println(ts.getOnNextEvents());
         ts.assertReceivedOnNext(Arrays.asList("success"));
     }
-    
+
     @Test
     public void testMapResumeAsyncNext() {
         // Trigger multiple failures
@@ -240,8 +242,9 @@ public class OperatorOnErrorResumeNextViaFunctionTest {
         w = w.map(new Func1<String, String>() {
             @Override
             public String call(String s) {
-                if ("fail".equals(s))
+                if ("fail".equals(s)) {
                     throw new RuntimeException("Forced Failure");
+                }
                 System.out.println("BadMapper:" + s);
                 return s;
             }
@@ -253,7 +256,7 @@ public class OperatorOnErrorResumeNextViaFunctionTest {
             public Observable<String> call(Throwable t1) {
                 return Observable.just("twoResume", "threeResume").subscribeOn(Schedulers.computation());
             }
-            
+
         });
 
         @SuppressWarnings("unchecked")
@@ -275,7 +278,7 @@ public class OperatorOnErrorResumeNextViaFunctionTest {
 
         final Subscription s;
         final String[] values;
-        Thread t = null;
+        Thread t;
 
         public TestObservable(Subscription s, String... values) {
             this.s = s;
@@ -309,7 +312,7 @@ public class OperatorOnErrorResumeNextViaFunctionTest {
         }
 
     }
-    
+
     @Test
     public void testBackpressure() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -324,7 +327,7 @@ public class OperatorOnErrorResumeNextViaFunctionTest {
                 })
                 .observeOn(Schedulers.computation())
                 .map(new Func1<Integer, Integer>() {
-                    int c = 0;
+                    int c;
 
                     @Override
                     public Integer call(Integer t1) {
@@ -344,4 +347,35 @@ public class OperatorOnErrorResumeNextViaFunctionTest {
         ts.awaitTerminalEvent();
         ts.assertNoErrors();
     }
+
+    @Test
+    public void normalBackpressure() {
+        TestSubscriber<Integer> ts = TestSubscriber.create(0);
+
+        PublishSubject<Integer> ps = PublishSubject.create();
+
+        ps.onErrorResumeNext(new Func1<Throwable, Observable<Integer>>() {
+            @Override
+            public Observable<Integer> call(Throwable v) {
+                return Observable.range(3, 2);
+            }
+        }).subscribe(ts);
+
+        ts.requestMore(2);
+
+        ps.onNext(1);
+        ps.onNext(2);
+        ps.onError(new TestException("Forced failure"));
+
+        ts.assertValues(1, 2);
+        ts.assertNoErrors();
+        ts.assertNotCompleted();
+
+        ts.requestMore(2);
+
+        ts.assertValues(1, 2, 3, 4);
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
 }

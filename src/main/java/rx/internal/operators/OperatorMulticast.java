@@ -15,23 +15,20 @@
  */
 package rx.internal.operators;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
+import rx.*;
 import rx.Observable;
-import rx.Subscriber;
-import rx.Subscription;
-import rx.functions.Action0;
-import rx.functions.Action1;
-import rx.functions.Func0;
+import rx.functions.*;
 import rx.observables.ConnectableObservable;
+import rx.observers.Subscribers;
 import rx.subjects.Subject;
 import rx.subscriptions.Subscriptions;
 
 /**
  * Shares a single subscription to a source through a Subject.
- * 
+ *
  * @param <T>
  *            the source value type
  * @param <R>
@@ -45,9 +42,9 @@ public final class OperatorMulticast<T, R> extends ConnectableObservable<R> {
     final List<Subscriber<? super R>> waitingForConnect;
 
     /** Guarded by guard. */
-    private Subscriber<T> subscription;
+    Subscriber<T> subscription;
     // wraps subscription above for unsubscription using guard
-    private Subscription guardedSubscription;
+    Subscription guardedSubscription;
 
     public OperatorMulticast(Observable<? extends T> source, final Func0<? extends Subject<? super T, ? extends R>> subjectFactory) {
         this(new Object(), new AtomicReference<Subject<? super T, ? extends R>>(), new ArrayList<Subscriber<? super R>>(), source, subjectFactory);
@@ -75,6 +72,7 @@ public final class OperatorMulticast<T, R> extends ConnectableObservable<R> {
         this.subjectFactory = subjectFactory;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public void connect(Action1<? super Subscription> connection) {
         // each time we connect we create a new Subject and Subscription
@@ -88,24 +86,9 @@ public final class OperatorMulticast<T, R> extends ConnectableObservable<R> {
             } else {
                 // we aren't connected, so let's create a new Subject and connect
                 final Subject<? super T, ? extends R> subject = subjectFactory.call();
-                // create new Subscriber that will pass-thru to the subject we just created
+                // create new Subscriber that will pass-through to the subject we just created
                 // we do this since it is also a Subscription whereas the Subject is not
-                subscription = new Subscriber<T>() {
-                    @Override
-                    public void onCompleted() {
-                        subject.onCompleted();
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-                        subject.onError(e);
-                    }
-
-                    @Override
-                    public void onNext(T args) {
-                        subject.onNext(args);
-                    }
-                };
+                subscription = Subscribers.from(subject);
                 final AtomicReference<Subscription> gs = new AtomicReference<Subscription>();
                 gs.set(Subscriptions.create(new Action0() {
                     @Override
@@ -117,8 +100,9 @@ public final class OperatorMulticast<T, R> extends ConnectableObservable<R> {
                                 subscription = null;
                                 guardedSubscription = null;
                                 connectedSubject.set(null);
-                            } else 
+                            } else {
                                 return;
+                            }
                         }
                         if (s != null) {
                             s.unsubscribe();
@@ -126,17 +110,30 @@ public final class OperatorMulticast<T, R> extends ConnectableObservable<R> {
                     }
                 }));
                 guardedSubscription = gs.get();
-                
+
                 // register any subscribers that are waiting with this new subject
-                for(Subscriber<? super R> s : waitingForConnect) {
-                    subject.unsafeSubscribe(s);
+                for (final Subscriber<? super R> s : waitingForConnect) {
+                    subject.unsafeSubscribe(new Subscriber<R>(s) {
+                        @Override
+                        public void onNext(R t) {
+                            s.onNext(t);
+                        }
+                        @Override
+                        public void onError(Throwable e) {
+                            s.onError(e);
+                        }
+                        @Override
+                        public void onCompleted() {
+                            s.onCompleted();
+                        }
+                    });
                 }
                 // clear the waiting list as any new ones that come in after leaving this synchronized block will go direct to the Subject
                 waitingForConnect.clear();
                 // record the Subject so OnSubscribe can see it
                 connectedSubject.set(subject);
             }
-            
+
         }
 
         // in the lock above we determined we should subscribe, do it now outside the lock
@@ -145,11 +142,12 @@ public final class OperatorMulticast<T, R> extends ConnectableObservable<R> {
 
         // now that everything is hooked up let's subscribe
         // as long as the subscription is not null (which can happen if already unsubscribed)
-        Subscriber<T> sub; 
+        Subscriber<T> sub;
         synchronized (guard) {
             sub = subscription;
         }
-        if (sub != null)
-            source.subscribe(sub);
+        if (sub != null) {
+            ((Observable<T>)source).subscribe(sub);
+        }
     }
 }

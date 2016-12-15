@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -33,7 +33,7 @@ import rx.observers.TestSubscriber;
 
 /**
  * Test super/extends of generics.
- * 
+ *
  * See https://github.com/Netflix/RxJava/pull/331
  */
 public class CovarianceTest {
@@ -106,6 +106,7 @@ public class CovarianceTest {
         assertEquals(6, ts.getOnNextEvents().size());
     }
 
+    @SuppressWarnings("unused")
     @Test
     public void testCovarianceOfCompose() {
         Observable<HorrorMovie> movie = Observable.just(new HorrorMovie());
@@ -115,10 +116,11 @@ public class CovarianceTest {
             public Observable<Movie> call(Observable<Movie> t1) {
                 return Observable.just(new Movie());
             }
-            
+
         });
     }
-    
+
+    @SuppressWarnings("unused")
     @Test
     public void testCovarianceOfCompose2() {
         Observable<Movie> movie = Observable.<Movie> just(new HorrorMovie());
@@ -130,6 +132,7 @@ public class CovarianceTest {
         });
     }
 
+    @SuppressWarnings("unused")
     @Test
     public void testCovarianceOfCompose3() {
         Observable<Movie> movie = Observable.<Movie>just(new HorrorMovie());
@@ -147,6 +150,7 @@ public class CovarianceTest {
         });
     }
 
+    @SuppressWarnings("unused")
     @Test
     public void testCovarianceOfCompose4() {
         Observable<HorrorMovie> movie = Observable.just(new HorrorMovie());
@@ -163,7 +167,7 @@ public class CovarianceTest {
             }
         });
     }
-    
+
     @Test
     public void testComposeWithDeltaLogic() {
         List<Movie> list1 = Arrays.asList(new Movie(), new HorrorMovie(), new ActionMovie());
@@ -184,6 +188,7 @@ public class CovarianceTest {
     };
 
     static Func1<List<List<Movie>>, Observable<Movie>> calculateDelta = new Func1<List<List<Movie>>, Observable<Movie>>() {
+        @Override
         public Observable<Movie> call(List<List<Movie>> listOfLists) {
             if (listOfLists.size() == 1) {
                 return Observable.from(listOfLists.get(0));
@@ -201,13 +206,13 @@ public class CovarianceTest {
                 oldList.removeAll(newList);
 
                 // for all left in the oldList we'll create DROP events
-                for (Movie old : oldList) {
+                for (@SuppressWarnings("unused") Movie old : oldList) {
                     delta.add(new Movie());
                 }
 
                 return Observable.from(delta);
             }
-        };
+        }
     };
 
     /*

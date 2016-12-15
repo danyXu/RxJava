@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,6 +27,7 @@ import org.mockito.*;
 import rx.*;
 import rx.Observable;
 import rx.Observer;
+import rx.internal.util.PlatformDependent;
 import rx.observers.TestSubscriber;
 import rx.schedulers.Schedulers;
 
@@ -91,7 +92,7 @@ public class OperatorMergeMaxConcurrentTest {
 
         private final AtomicInteger subscriptionCount;
         private final int maxConcurrent;
-        volatile boolean failed = false;
+        volatile boolean failed;
 
         SubscriptionCheckObservable(AtomicInteger subscriptionCount, int maxConcurrent) {
             this.subscriptionCount = subscriptionCount;
@@ -122,7 +123,7 @@ public class OperatorMergeMaxConcurrentTest {
         }
 
     }
-    
+
     @Test
     public void testMergeALotOfSourcesOneByOneSynchronously() {
         int n = 10000;
@@ -153,7 +154,7 @@ public class OperatorMergeMaxConcurrentTest {
         }
         assertEquals(j, n / 2);
     }
-    
+
     @Test
     public void testSimple() {
         for (int i = 1; i < 100; i++) {
@@ -164,9 +165,9 @@ public class OperatorMergeMaxConcurrentTest {
                 sourceList.add(Observable.just(j));
                 result.add(j);
             }
-            
+
             Observable.merge(sourceList, i).subscribe(ts);
-        
+
             ts.assertNoErrors();
             ts.assertTerminalEvent();
             ts.assertReceivedOnNext(result);
@@ -182,15 +183,15 @@ public class OperatorMergeMaxConcurrentTest {
                 sourceList.add(Observable.just(j));
                 result.add(j);
             }
-            
+
             Observable.merge(sourceList, i - 1).subscribe(ts);
-        
+
             ts.assertNoErrors();
             ts.assertTerminalEvent();
             ts.assertReceivedOnNext(result);
         }
     }
-    @Test(timeout = 10000)
+    @Test(timeout = 20000)
     public void testSimpleAsyncLoop() {
         for (int i = 0; i < 200; i++) {
             testSimpleAsync();
@@ -206,25 +207,33 @@ public class OperatorMergeMaxConcurrentTest {
                 sourceList.add(Observable.just(j).subscribeOn(Schedulers.io()));
                 expected.add(j);
             }
-            
+
             Observable.merge(sourceList, i).subscribe(ts);
-        
+
             ts.awaitTerminalEvent(1, TimeUnit.SECONDS);
             ts.assertNoErrors();
             Set<Integer> actual = new HashSet<Integer>(ts.getOnNextEvents());
-            
+
             assertEquals(expected, actual);
         }
     }
     @Test(timeout = 10000)
     public void testSimpleOneLessAsyncLoop() {
-        for (int i = 0; i < 200; i++) {
+        int max = 200;
+        if (PlatformDependent.isAndroid()) {
+            max = 50;
+        }
+        for (int i = 0; i < max; i++) {
             testSimpleOneLessAsync();
         }
     }
     @Test(timeout = 10000)
     public void testSimpleOneLessAsync() {
+        long t = System.currentTimeMillis();
         for (int i = 2; i < 50; i++) {
+            if (System.currentTimeMillis() - t > TimeUnit.SECONDS.toMillis(9)) {
+                break;
+            }
             TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
             List<Observable<Integer>> sourceList = new ArrayList<Observable<Integer>>(i);
             Set<Integer> expected = new HashSet<Integer>(i);
@@ -232,26 +241,26 @@ public class OperatorMergeMaxConcurrentTest {
                 sourceList.add(Observable.just(j).subscribeOn(Schedulers.io()));
                 expected.add(j);
             }
-            
+
             Observable.merge(sourceList, i - 1).subscribe(ts);
-        
+
             ts.awaitTerminalEvent(1, TimeUnit.SECONDS);
             ts.assertNoErrors();
             Set<Integer> actual = new HashSet<Integer>(ts.getOnNextEvents());
-            
+
             assertEquals(expected, actual);
         }
     }
     @Test(timeout = 5000)
     public void testBackpressureHonored() throws Exception {
         List<Observable<Integer>> sourceList = new ArrayList<Observable<Integer>>(3);
-        
+
         sourceList.add(Observable.range(0, 100000).subscribeOn(Schedulers.io()));
         sourceList.add(Observable.range(0, 100000).subscribeOn(Schedulers.io()));
         sourceList.add(Observable.range(0, 100000).subscribeOn(Schedulers.io()));
-        
+
         final CountDownLatch cdl = new CountDownLatch(5);
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onStart() {
@@ -263,31 +272,31 @@ public class OperatorMergeMaxConcurrentTest {
                 cdl.countDown();
             }
         };
-        
+
         Observable.merge(sourceList, 2).subscribe(ts);
-        
+
         ts.requestMore(5);
-        
+
         cdl.await();
-        
+
         ts.assertNoErrors();
         assertEquals(5, ts.getOnNextEvents().size());
-        assertEquals(0, ts.getOnCompletedEvents().size());
-        
+        assertEquals(0, ts.getCompletions());
+
         ts.unsubscribe();
     }
     @Test(timeout = 5000)
     public void testTake() throws Exception {
         List<Observable<Integer>> sourceList = new ArrayList<Observable<Integer>>(3);
-        
+
         sourceList.add(Observable.range(0, 100000).subscribeOn(Schedulers.io()));
         sourceList.add(Observable.range(0, 100000).subscribeOn(Schedulers.io()));
         sourceList.add(Observable.range(0, 100000).subscribeOn(Schedulers.io()));
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
-        
+
         Observable.merge(sourceList, 2).take(5).subscribe(ts);
-        
+
         ts.awaitTerminalEvent();
         ts.assertNoErrors();
         assertEquals(5, ts.getOnNextEvents().size());

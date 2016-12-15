@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 package rx.exceptions;
+
+import java.io.*;
+import java.util.*;
+
+import rx.plugins.*;
 
 /**
  * Represents a {@code Throwable} that an {@code Observable} might notify its subscribers of, but that then can
@@ -37,7 +42,17 @@ public final class OnErrorThrowable extends RuntimeException {
     private OnErrorThrowable(Throwable exception, Object value) {
         super(exception);
         hasValue = true;
-        this.value = value;
+        Object v;
+        if (value instanceof Serializable) {
+            v = value;
+        } else {
+            try {
+                v = String.valueOf(value);
+            } catch (Throwable ex) {
+                v = ex.getMessage();
+            }
+        }
+        this.value = v;
     }
 
     /**
@@ -63,22 +78,24 @@ public final class OnErrorThrowable extends RuntimeException {
      * Converts a {@link Throwable} into an {@link OnErrorThrowable}.
      *
      * @param t
-     *          the {@code Throwable} to convert
+     *          the {@code Throwable} to convert; if null, a NullPointerException is constructed
      * @return an {@code OnErrorThrowable} representation of {@code t}
      */
     public static OnErrorThrowable from(Throwable t) {
+        if (t == null) {
+            t = new NullPointerException();
+        }
         Throwable cause = Exceptions.getFinalCause(t);
         if (cause instanceof OnErrorThrowable.OnNextValue) {
             return new OnErrorThrowable(t, ((OnNextValue) cause).getValue());
-        } else {
-            return new OnErrorThrowable(t);
         }
+        return new OnErrorThrowable(t);
     }
 
     /**
      * Adds the given item as the final cause of the given {@code Throwable}, wrapped in {@code OnNextValue}
      * (which extends {@code RuntimeException}).
-     * 
+     *
      * @param e
      *          the {@link Throwable} to which you want to add a cause
      * @param value
@@ -87,8 +104,11 @@ public final class OnErrorThrowable extends RuntimeException {
      *         cause
      */
     public static Throwable addValueAsLastCause(Throwable e, Object value) {
+        if (e == null) {
+            e = new NullPointerException();
+        }
         Throwable lastCause = Exceptions.getFinalCause(e);
-        if (lastCause != null && lastCause instanceof OnNextValue) {
+        if (lastCause instanceof OnNextValue) {
             // purposefully using == for object reference check
             if (((OnNextValue) lastCause).getValue() == value) {
                 // don't add another
@@ -106,7 +126,29 @@ public final class OnErrorThrowable extends RuntimeException {
     public static class OnNextValue extends RuntimeException {
 
         private static final long serialVersionUID = -3454462756050397899L;
+
         private final Object value;
+
+        // Lazy loaded singleton
+        static final class Primitives {
+
+            static final Set<Class<?>> INSTANCE = create();
+
+            private static Set<Class<?>> create() {
+                Set<Class<?>> set = new HashSet<Class<?>>();
+                set.add(Boolean.class);
+                set.add(Character.class);
+                set.add(Byte.class);
+                set.add(Short.class);
+                set.add(Integer.class);
+                set.add(Long.class);
+                set.add(Float.class);
+                set.add(Double.class);
+                // Void is another primitive but cannot be instantiated
+                // and is caught by the null check in renderValue
+                return set;
+            }
+        }
 
         /**
          * Create an {@code OnNextValue} exception and include in its error message a string representation of
@@ -117,7 +159,17 @@ public final class OnErrorThrowable extends RuntimeException {
          */
         public OnNextValue(Object value) {
             super("OnError while emitting onNext value: " + renderValue(value));
-            this.value = value;
+            Object v;
+            if (value instanceof Serializable) {
+                v = value;
+            } else {
+                try {
+                    v = String.valueOf(value);
+                } catch (Throwable ex) {
+                    v = ex.getMessage();
+                }
+            }
+            this.value = v;
         }
 
         /**
@@ -131,17 +183,24 @@ public final class OnErrorThrowable extends RuntimeException {
 
         /**
          * Render the object if it is a basic type. This avoids the library making potentially expensive
-         * or calls to toString() which may throw exceptions. See PR #1401 for details.
+         * or calls to toString() which may throw exceptions.
+         *
+         * If a specific behavior has been defined in the {@link RxJavaErrorHandler} plugin, some types
+         * may also have a specific rendering. Non-primitive types not managed by the plugin are rendered
+         * as the class name of the object.
+         * <p>
+         * See PR #1401 and Issue #2468 for details.
          *
          * @param value
          *        the item that the Observable was trying to emit at the time of the exception
-         * @return a string version of the object if primitive, otherwise the classname of the object
+         * @return a string version of the object if primitive or managed through error plugin,
+         *        otherwise the class name of the object
          */
-        private static String renderValue(Object value){
+        static String renderValue(Object value) {
             if (value == null) {
                 return "null";
             }
-            if (value.getClass().isPrimitive()) {
+            if (Primitives.INSTANCE.contains(value.getClass())) {
                 return value.toString();
             }
             if (value instanceof String) {
@@ -150,6 +209,13 @@ public final class OnErrorThrowable extends RuntimeException {
             if (value instanceof Enum) {
                 return ((Enum<?>) value).name();
             }
+
+            @SuppressWarnings("deprecation")
+            String pluggedRendering = RxJavaPlugins.getInstance().getErrorHandler().handleOnNextValueRendering(value);
+            if (pluggedRendering != null) {
+                return pluggedRendering;
+            }
+
             return value.getClass().getName() + ".class";
         }
     }

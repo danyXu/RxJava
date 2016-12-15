@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,6 +23,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.Before;
@@ -36,6 +37,7 @@ import rx.Subscriber;
 import rx.exceptions.TestException;
 import rx.functions.Action0;
 import rx.functions.Func1;
+import rx.observers.TestSubscriber;
 import rx.schedulers.TestScheduler;
 import rx.subjects.PublishSubject;
 
@@ -245,17 +247,17 @@ public class OperatorDebounceTest {
     @Test
     public void debounceTimedLastIsNotLost() {
         PublishSubject<Integer> source = PublishSubject.create();
-        
+
         @SuppressWarnings("unchecked")
         Observer<Object> o = mock(Observer.class);
 
         source.debounce(100, TimeUnit.MILLISECONDS, scheduler).subscribe(o);
-        
+
         source.onNext(1);
         source.onCompleted();
-        
+
         scheduler.advanceTimeBy(1, TimeUnit.SECONDS);
-        
+
         verify(o).onNext(1);
         verify(o).onCompleted();
         verify(o, never()).onError(any(Throwable.class));
@@ -277,7 +279,7 @@ public class OperatorDebounceTest {
         Observer<Object> o = mock(Observer.class);
 
         source.debounce(debounceSel).subscribe(o);
-        
+
         source.onNext(1);
         source.onCompleted();
 
@@ -286,5 +288,34 @@ public class OperatorDebounceTest {
         verify(o).onNext(1);
         verify(o).onCompleted();
         verify(o, never()).onError(any(Throwable.class));
+    }
+
+    @Test
+    public void debounceWithTimeBackpressure() throws InterruptedException {
+        TestScheduler scheduler = new TestScheduler();
+        TestSubscriber<Integer> subscriber = new TestSubscriber<Integer>();
+        Observable.merge(
+                Observable.just(1),
+                Observable.just(2).delay(10, TimeUnit.MILLISECONDS, scheduler)
+        ).debounce(20, TimeUnit.MILLISECONDS, scheduler).take(1).subscribe(subscriber);
+
+        scheduler.advanceTimeBy(30, TimeUnit.MILLISECONDS);
+
+        subscriber.assertReceivedOnNext(Arrays.asList(2));
+        subscriber.assertTerminalEvent();
+        subscriber.assertNoErrors();
+    }
+
+    @Test
+    public void debounceDefaultScheduler() throws Exception {
+
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+
+        Observable.range(1, 1000).debounce(1, TimeUnit.SECONDS).subscribe(ts);
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValue(1000);
+        ts.assertNoErrors();
+        ts.assertCompleted();
     }
 }

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,20 +15,13 @@
  */
 package rx.internal.operators;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.*;
+import java.util.concurrent.atomic.*;
 
-import org.junit.Test;
+import org.junit.*;
 
 import rx.Observable;
 import rx.Observer;
@@ -77,7 +70,7 @@ public class OnSubscribeRangeTest {
     }
 
     @Test
-    public void testRangeWithOverflow() {
+    public void testRangeWithZero() {
         Observable.range(1, 0);
     }
 
@@ -104,7 +97,7 @@ public class OnSubscribeRangeTest {
     @Test
     public void testBackpressureViaRequest() {
         OnSubscribeRange o = new OnSubscribeRange(1, RxRingBuffer.SIZE);
-        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+        TestSubscriber<Integer> ts = TestSubscriber.create();
         ts.assertReceivedOnNext(Collections.<Integer> emptyList());
         ts.requestMore(1);
         o.call(ts);
@@ -125,7 +118,7 @@ public class OnSubscribeRangeTest {
         }
 
         OnSubscribeRange o = new OnSubscribeRange(1, list.size());
-        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+        TestSubscriber<Integer> ts = TestSubscriber.create();
         ts.assertReceivedOnNext(Collections.<Integer> emptyList());
         ts.requestMore(Long.MAX_VALUE); // infinite
         o.call(ts);
@@ -134,11 +127,11 @@ public class OnSubscribeRangeTest {
     }
     void testWithBackpressureOneByOne(int start) {
         Observable<Integer> source = Observable.range(start, 100);
-        
-        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
         ts.requestMore(1);
         source.subscribe(ts);
-        
+
         List<Integer> list = new ArrayList<Integer>(100);
         for (int i = 0; i < 100; i++) {
             list.add(i + start);
@@ -149,11 +142,11 @@ public class OnSubscribeRangeTest {
     }
     void testWithBackpressureAllAtOnce(int start) {
         Observable<Integer> source = Observable.range(start, 100);
-        
-        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
         ts.requestMore(100);
         source.subscribe(ts);
-        
+
         List<Integer> list = new ArrayList<Integer>(100);
         for (int i = 0; i < 100; i++) {
             list.add(i + start);
@@ -176,22 +169,22 @@ public class OnSubscribeRangeTest {
     @Test
     public void testWithBackpressureRequestWayMore() {
         Observable<Integer> source = Observable.range(50, 100);
-        
-        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
         ts.requestMore(150);
         source.subscribe(ts);
-        
+
         List<Integer> list = new ArrayList<Integer>(100);
         for (int i = 0; i < 100; i++) {
             list.add(i + 50);
         }
-        
+
         ts.requestMore(50); // and then some
-        
+
         ts.assertReceivedOnNext(list);
         ts.assertTerminalEvent();
     }
-    
+
     @Test
     public void testRequestOverflow() {
         final AtomicInteger count = new AtomicInteger();
@@ -202,7 +195,7 @@ public class OnSubscribeRangeTest {
             public void onStart() {
                 request(2);
             }
-            
+
             @Override
             public void onCompleted() {
                 //do nothing
@@ -219,5 +212,61 @@ public class OnSubscribeRangeTest {
                 request(Long.MAX_VALUE - 1);
             }});
         assertEquals(n, count.get());
+    }
+
+    @Test
+    public void testEmptyRangeSendsOnCompleteEagerlyWithRequestZero() {
+        final AtomicBoolean completed = new AtomicBoolean(false);
+        Observable.range(1, 0).subscribe(new Subscriber<Integer>() {
+
+            @Override
+            public void onStart() {
+                request(0);
+            }
+
+            @Override
+            public void onCompleted() {
+                completed.set(true);
+            }
+
+            @Override
+            public void onError(Throwable e) {
+
+            }
+
+            @Override
+            public void onNext(Integer t) {
+
+            }});
+        assertTrue(completed.get());
+    }
+
+    @Test(timeout = 1000)
+    public void testNearMaxValueWithoutBackpressure() {
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+        Observable.range(Integer.MAX_VALUE - 1, 2).subscribe(ts);
+
+        ts.assertCompleted();
+        ts.assertNoErrors();
+        ts.assertValues(Integer.MAX_VALUE - 1, Integer.MAX_VALUE);
+    }
+    @Test(timeout = 1000)
+    public void testNearMaxValueWithBackpressure() {
+        TestSubscriber<Integer> ts = TestSubscriber.create(3);
+        Observable.range(Integer.MAX_VALUE - 1, 2).subscribe(ts);
+
+        ts.assertCompleted();
+        ts.assertNoErrors();
+        ts.assertValues(Integer.MAX_VALUE - 1, Integer.MAX_VALUE);
+    }
+
+    @Test
+    public void negativeCount() {
+        try {
+            Observable.range(1, -1);
+            Assert.fail("Should have thrown IllegalArgumentException");
+        } catch (IllegalArgumentException ex) {
+            Assert.assertEquals("Count can not be negative", ex.getMessage());
+        }
     }
 }

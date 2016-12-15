@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,7 @@
  */
 package rx.internal.operators;
 
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.*;
@@ -25,6 +26,7 @@ import org.junit.*;
 
 import rx.*;
 import rx.Observable.OnSubscribe;
+import rx.exceptions.TestException;
 import rx.functions.Func1;
 import rx.observers.TestSubscriber;
 import rx.subjects.*;
@@ -85,7 +87,7 @@ public class OperatorTakeWhileTest {
     public void testTakeWhile2() {
         Observable<String> w = Observable.just("one", "two", "three");
         Observable<String> take = w.takeWhile(new Func1<String, Boolean>() {
-            int index = 0;
+            int index;
 
             @Override
             public Boolean call(String input) {
@@ -156,7 +158,7 @@ public class OperatorTakeWhileTest {
         @SuppressWarnings("unchecked")
         Observer<String> observer = mock(Observer.class);
         Observable<String> take = Observable.create(w).takeWhile(new Func1<String, Boolean>() {
-            int index = 0;
+            int index;
 
             @Override
             public Boolean call(String s) {
@@ -184,7 +186,7 @@ public class OperatorTakeWhileTest {
 
         final Subscription s;
         final String[] values;
-        Thread t = null;
+        Thread t;
 
         public TestObservable(Subscription s, String... values) {
             this.s = s;
@@ -217,7 +219,7 @@ public class OperatorTakeWhileTest {
             System.out.println("done starting TestObservable thread");
         }
     }
-    
+
     @Test
     public void testBackpressure() {
         Observable<Integer> source = Observable.range(1, 1000).takeWhile(new Func1<Integer, Boolean>() {
@@ -232,18 +234,18 @@ public class OperatorTakeWhileTest {
                 request(5);
             }
         };
-        
+
         source.subscribe(ts);
-        
+
         ts.assertNoErrors();
         ts.assertReceivedOnNext(Arrays.asList(1, 2, 3, 4, 5));
-        
+
         ts.requestMore(5);
 
         ts.assertNoErrors();
         ts.assertReceivedOnNext(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
     }
-    
+
     @Test
     public void testNoUnsubscribeDownstream() {
         Observable<Integer> source = Observable.range(1, 1000).takeWhile(new Func1<Integer, Boolean>() {
@@ -253,12 +255,28 @@ public class OperatorTakeWhileTest {
             }
         });
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
-        
+
         source.unsafeSubscribe(ts);
-        
+
         ts.assertNoErrors();
         ts.assertReceivedOnNext(Arrays.asList(1));
-        
+
         Assert.assertFalse("Unsubscribed!", ts.isUnsubscribed());
     }
+
+    @Test
+    public void testErrorCauseIncludesLastValue() {
+        TestSubscriber<String> ts = new TestSubscriber<String>();
+        Observable.just("abc").takeWhile(new Func1<String, Boolean>() {
+            @Override
+            public Boolean call(String t1) {
+                throw new TestException();
+            }
+        }).subscribe(ts);
+
+        ts.assertTerminalEvent();
+        ts.assertNoValues();
+        assertTrue(ts.getOnErrorEvents().get(0).getCause().getMessage().contains("abc"));
+    }
+
 }
